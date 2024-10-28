@@ -7,11 +7,10 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 contract Token1 is ERC20, Ownable {
     uint256 dec = 10**18;
 
-    constructor() ERC20("Token1", "TKN1")  Ownable(msg.sender){
+    constructor() ERC20("Token1", "TKN1") Ownable(msg.sender) {
         _mint(msg.sender, 1000000 * dec);
     }
 
-    // Function to mint tokens, only callable by the owner
     function mint(address to, uint256 amount) external onlyOwner {
         _mint(to, amount);
     }
@@ -25,6 +24,7 @@ interface IMintableERC20 {
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
     function mint(address to, uint256 amount) external;
 }
+
 contract Futures {
     IMintableERC20 public token;
     uint256 public currentMarketPrice;
@@ -48,7 +48,7 @@ contract Futures {
     mapping(address => FuturesContract[]) public openPositions;
     mapping(address => FuturesContract[]) public settledPositions;
 
-    OHLCV[15] public ohlcvQueue; // Fixed-size array for 15 OHLCV values
+    OHLCV[15] public ohlcvQueue;
 
     constructor(address token_address, OHLCV[15] memory initialValues, uint256 _currentMarketPrice) {
         token = IMintableERC20(token_address);
@@ -58,18 +58,11 @@ contract Futures {
         currentMarketPrice = _currentMarketPrice;
     }
 
-    // Function to add a new OHLCV value
-    function addOHLCV(
-        uint256 open,
-        uint256 high,
-        uint256 low,
-        uint256 close,
-        uint256 volume
-    ) external {
+    function addOHLCV(uint256 open, uint256 high, uint256 low, uint256 close, uint256 volume) external {
         for (uint256 i = 0; i < 14; i++) {
             ohlcvQueue[i] = ohlcvQueue[i + 1];
         }
-        ohlcvQueue[14] = OHLCV(open, high, low, close, volume); // add the latest value
+        ohlcvQueue[14] = OHLCV(open, high, low, close, volume);
     }
 
     function updateMarketPrice(uint256 newMarketPrice) external {
@@ -79,12 +72,12 @@ contract Futures {
     function getOHLCVQueue() public view returns (OHLCV[15] memory) {
         return ohlcvQueue;
     }
-                                                                                                   
+
     function openPosition(uint256 _leverage, uint256 tokenAmount) external {
         require(_leverage >= 1 && _leverage <= 100, "Leverage range not correct");
         require(token.balanceOf(msg.sender) >= tokenAmount, "User must have sufficient balance");
         
-        token.transferFrom(msg.sender, address(this), tokenAmount); // take the collateral amount inside the contract
+        token.transferFrom(msg.sender, address(this), tokenAmount);
 
         openPositions[msg.sender].push(FuturesContract({
             tokenUnits: tokenAmount,
@@ -98,36 +91,34 @@ contract Futures {
     function closePosition(uint256 positionIndex) external {
         require(positionIndex < openPositions[msg.sender].length, "Invalid position index");
 
-        FuturesContract memory position = openPositions[msg.sender][positionIndex];
-        int256 pnl = calculatePnL(positionIndex); // Calculate PnL
+        (FuturesContract memory position, int256 pnl) = calculatePnL(positionIndex);
 
         if (pnl < 0) {
-            uint256 loss = uint256(-pnl); // convert to positive value
+            uint256 loss = uint256(-pnl);
             if (loss >= position.collateral) {
-                delete openPositions[msg.sender][positionIndex]; // Remove position
+                delete openPositions[msg.sender][positionIndex];
             } else {
-                token.transferFrom(address(this),msg.sender, position.collateral - loss); // Return remaining collateral
-                delete openPositions[msg.sender][positionIndex]; // Close position
+                token.transfer(msg.sender, position.collateral - loss);
+                delete openPositions[msg.sender][positionIndex];
             }
         } else {
             uint256 profit = uint256(pnl);
-            token.mint(address(this), profit+1);
-            token.transferFrom(address(this),msg.sender, position.collateral + profit); // Return collateral and profit
-            delete openPositions[msg.sender][positionIndex]; // Close position
+            token.mint(address(this), profit + 1);
+            token.transfer(msg.sender, position.collateral + profit);
+            delete openPositions[msg.sender][positionIndex];
         }
     }
 
-    function getPositions() external view returns(FuturesContract[] memory) {
+    function getPositions() external view returns (FuturesContract[] memory) {
         return openPositions[msg.sender];
     }
 
-    function calculatePnL(uint256 positionIndex) public view returns (int256) {
+    function calculatePnL(uint256 positionIndex) public view returns (FuturesContract memory, int256) {
         FuturesContract memory position = openPositions[msg.sender][positionIndex];
         int256 priceDiff = int256(currentMarketPrice) - int256(position.entryPrice);
         int256 pnl = (priceDiff * int256(position.tokenUnits) * int256(position.leverage)) / int256(position.entryPrice);
-        return pnl; 
+        return (position, pnl);
     }
-
 }
 // Dummy data:
 // [
